@@ -4,6 +4,8 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes 
 
 Deployed as a Vercel serverless function. Fetches live data from Garmin Connect on each tool call.
 
+> **This is a personal server** — it connects to one Garmin account (credentials baked into the deployment). If you want your own instance, see [Self-hosting](#self-hosting).
+
 ## Tools
 
 | Tool | Description |
@@ -17,47 +19,14 @@ Deployed as a Vercel serverless function. Fetches live data from Garmin Connect 
 
 ## Setup
 
-### Prerequisites
-
-- [Vercel account](https://vercel.com) and the Vercel CLI (`npm i -g vercel`)
-- A Garmin Connect account with training data
-- Node.js 20+
-
-### Deploy
-
-```bash
-git clone https://github.com/mark-kan/garmin-mcp
-cd garmin-mcp
-npm install
-
-# Link to Vercel and set credentials
-vercel link
-vercel env add GARMIN_EMAIL
-vercel env add GARMIN_PASSWORD
-
-# Deploy
-vercel --prod
-```
-
-Your MCP endpoint will be at `https://<your-project>.vercel.app/api/mcp`.
-
-### Local development
-
-```bash
-vercel env pull .env.local   # sync credentials locally
-npm run dev                  # starts on http://localhost:3000
-```
-
-### Connect to Claude
-
-Add to your Claude MCP config (`~/.claude/claude_desktop_config.json` or Claude Code settings):
+Add to your Claude MCP config (`~/.claude/claude_desktop_config.json` for Claude Desktop, or Claude Code settings):
 
 ```json
 {
   "mcpServers": {
     "garmin": {
       "type": "http",
-      "url": "https://<your-project>.vercel.app/api/mcp"
+      "url": "https://garmin-mcp-kappa.vercel.app/api/mcp"
     }
   }
 }
@@ -68,6 +37,23 @@ Then ask Claude things like:
 - *"Analyse the HR zones from my run on May 30"*
 - *"How has my training load trended over the last 28 days?"*
 - *"Compare my last three runs"*
+
+## Self-hosting
+
+To deploy your own instance against your own Garmin account:
+
+```bash
+git clone https://github.com/mark-kan/garmin-mcp
+cd garmin-mcp
+npm install
+
+vercel link
+vercel env add GARMIN_EMAIL
+vercel env add GARMIN_PASSWORD
+vercel --prod
+```
+
+Then update the MCP URL to your own deployment.
 
 ## Stack
 
