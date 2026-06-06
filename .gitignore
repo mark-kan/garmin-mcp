@@ -17,3 +17,4 @@ test-data/
 # build artifacts
 *.js.map
 dist/
+.vercel
