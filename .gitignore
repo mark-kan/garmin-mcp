@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# secrets
+.env
+.env.local
+.env*.local
+
+# vercel
+.vercel/
+
+# test / scratch data
+test-data/
+*.sample.json
+*.test-output.json
+
+# build artifacts
+*.js.map
+dist/
