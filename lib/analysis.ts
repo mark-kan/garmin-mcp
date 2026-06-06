@@ -112,22 +112,24 @@ export function mpsToMinPerKm(mps: number): string {
 }
 
 export function summarizeActivity(a: IActivity): Record<string, unknown> {
+  // getActivity() returns fields nested under summaryDTO; getActivities() returns them flat.
+  const s = (a as any).summaryDTO ?? a;
   return {
     id: a.activityId,
-    name: a.activityName,
-    type: a.activityType?.typeKey,
-    date: a.startTimeLocal,
-    duration: formatDuration(a.duration),
-    distance_km: a.distance ? Math.round(a.distance / 10) / 100 : null,
-    avg_pace: mpsToMinPerKm(a.averageSpeed),
-    hr: { avg: a.averageHR, max: a.maxHR },
-    elevation: { gain: a.elevationGain, loss: a.elevationLoss },
-    calories: a.calories,
+    name: a.activityName ?? (a as any).activityName,
+    type: a.activityType?.typeKey ?? (a as any).activityTypeDTO?.typeKey,
+    date: s.startTimeLocal ?? a.startTimeLocal,
+    duration: formatDuration(s.duration ?? a.duration),
+    distance_km: (s.distance ?? a.distance) ? Math.round((s.distance ?? a.distance) / 10) / 100 : null,
+    avg_pace: mpsToMinPerKm(s.averageSpeed ?? a.averageSpeed),
+    hr: { avg: s.averageHR ?? a.averageHR, max: s.maxHR ?? a.maxHR },
+    elevation: { gain: s.elevationGain ?? a.elevationGain, loss: s.elevationLoss ?? a.elevationLoss },
+    calories: s.calories ?? a.calories,
     training_effect: {
-      aerobic: a.aerobicTrainingEffect,
-      anaerobic: a.anaerobicTrainingEffect,
+      aerobic: s.aerobicTrainingEffect ?? a.aerobicTrainingEffect,
+      anaerobic: s.anaerobicTrainingEffect ?? a.anaerobicTrainingEffect,
     },
-    tss: a.trainingStressScore ?? null,
-    avg_power_w: (a as any).avgPower ?? null,
+    tss: s.trainingStressScore ?? a.trainingStressScore ?? null,
+    avg_power_w: s.avgPower ?? (a as any).avgPower ?? null,
   };
 }

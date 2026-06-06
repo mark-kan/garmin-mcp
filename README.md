@@ -4,7 +4,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes 
 
 Deployed as a Vercel serverless function. Fetches live data from Garmin Connect on each tool call.
 
-> **This is a personal server** — it connects to one Garmin account (credentials baked into the deployment). If you want your own instance, see [Self-hosting](#self-hosting).
+Connect your own Garmin account with a one-time token exchange — no deployment needed.
 
 ## Tools
 
@@ -19,14 +19,32 @@ Deployed as a Vercel serverless function. Fetches live data from Garmin Connect 
 
 ## Setup
 
-Add to your Claude MCP config (`~/.claude/claude_desktop_config.json` for Claude Desktop, or Claude Code settings):
+### 1. Get your token (one-time)
+
+Clone the repo and run the token helper with your Garmin credentials:
+
+```bash
+git clone https://github.com/mark-kan/garmin-mcp
+cd garmin-mcp
+npm install
+GARMIN_EMAIL=you@example.com GARMIN_PASSWORD=yourpass npx tsx scripts/get-token.ts
+```
+
+This logs in locally, exports your OAuth token, and prints a base64 string. Your credentials stay on your machine.
+
+### 2. Add to your MCP config
+
+`~/.claude/claude_desktop_config.json` (Claude Desktop) or Claude Code MCP settings:
 
 ```json
 {
   "mcpServers": {
     "garmin": {
       "type": "http",
-      "url": "https://garmin-mcp-kappa.vercel.app/api/mcp"
+      "url": "https://garmin-mcp-kappa.vercel.app/api/mcp",
+      "headers": {
+        "x-garmin-token": "<paste token here>"
+      }
     }
   }
 }
@@ -40,20 +58,16 @@ Then ask Claude things like:
 
 ## Self-hosting
 
-To deploy your own instance against your own Garmin account:
+To deploy your own instance:
 
 ```bash
 git clone https://github.com/mark-kan/garmin-mcp
 cd garmin-mcp
 npm install
-
-vercel link
-vercel env add GARMIN_EMAIL
-vercel env add GARMIN_PASSWORD
 vercel --prod
 ```
 
-Then update the MCP URL to your own deployment.
+Set `GARMIN_EMAIL` and `GARMIN_PASSWORD` as Vercel env vars if you want the server to work without a token header (personal use).
 
 ## Stack
 

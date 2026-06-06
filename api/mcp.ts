@@ -5,12 +5,13 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+import type { GarminConnect } from "garmin-connect";
 import {
   listActivities,
   getActivity,
   getHRTimeSeries,
   getAthleteProfile,
+  createClientFromToken,
 } from "../lib/garmin";
 import { analyzeHR, summarizeActivity } from "../lib/analysis";
 
@@ -99,7 +100,7 @@ const TOOLS = [
 
 // ── server factory ──────────────────────────────────────────────────────────
 
-function buildServer(): Server {
+function buildServer(gc?: GarminConnect): Server {
   const server = new Server(
     { name: "garmin-mcp", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -114,19 +115,19 @@ function buildServer(): Server {
     try {
       switch (name) {
         case "list_activities": {
-          const activities = await listActivities(a.limit ?? 20, a.offset ?? 0, a.type);
+          const activities = await listActivities(a.limit ?? 20, a.offset ?? 0, a.type, gc);
           return { content: [{ type: "text", text: JSON.stringify(activities.map(summarizeActivity), null, 2) }] };
         }
 
         case "get_activity_detail": {
-          const activity = await getActivity(Number(a.activity_id));
+          const activity = await getActivity(Number(a.activity_id), gc);
           return { content: [{ type: "text", text: JSON.stringify(summarizeActivity(activity), null, 2) }] };
         }
 
         case "get_hr_analysis": {
           const [samples, profile] = await Promise.all([
-            getHRTimeSeries(Number(a.activity_id)),
-            getAthleteProfile().catch(() => null),
+            getHRTimeSeries(Number(a.activity_id), gc),
+            getAthleteProfile(gc).catch(() => null),
           ]);
           const maxHR = a.max_hr ?? profile?.maxHROverride ?? DEFAULT_MAX_HR;
           const restHR = a.rest_hr ?? profile?.restingHeartRate ?? DEFAULT_REST_HR;
@@ -153,9 +154,9 @@ function buildServer(): Server {
         case "compare_activities": {
           const ids: number[] = a.activity_ids;
           const [profile, ...results] = await Promise.all([
-            getAthleteProfile().catch(() => null),
+            getAthleteProfile(gc).catch(() => null),
             ...ids.map((id) =>
-              Promise.all([getActivity(id), getHRTimeSeries(id)]).then(([act, hr]) => ({ act, hr }))
+              Promise.all([getActivity(id, gc), getHRTimeSeries(id, gc)]).then(([act, hr]) => ({ act, hr }))
             ),
           ]);
           const maxHR = a.max_hr ?? (profile as any)?.maxHROverride ?? DEFAULT_MAX_HR;
@@ -171,14 +172,14 @@ function buildServer(): Server {
         }
 
         case "get_athlete_profile": {
-          const profile = await getAthleteProfile();
+          const profile = await getAthleteProfile(gc);
           return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
         }
 
         case "get_training_load_history": {
           const [activities, profile] = await Promise.all([
-            listActivities(90),
-            getAthleteProfile().catch(() => null),
+            listActivities(90, 0, undefined, gc),
+            getAthleteProfile(gc).catch(() => null),
           ]);
           const maxHR = a.max_hr ?? (profile as any)?.maxHROverride ?? DEFAULT_MAX_HR;
           const restHR = a.rest_hr ?? (profile as any)?.restingHeartRate ?? DEFAULT_REST_HR;
@@ -186,7 +187,7 @@ function buildServer(): Server {
           const msPerDay = 86400000;
           const withLoad = await Promise.all(
             activities.slice(0, 30).map(async (act) => {
-              const samples = await getHRTimeSeries(act.activityId).catch(() => []);
+              const samples = await getHRTimeSeries(act.activityId, gc).catch(() => []);
               const { trimp } = analyzeHR(samples, restHR, maxHR);
               const ageMs = now - new Date(act.startTimeLocal).getTime();
               return { date: act.startTimeLocal, type: act.activityType?.typeKey, trimp, ageMs };
@@ -223,11 +224,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true });
   }
 
+  const tokenHeader = req.headers["x-garmin-token"] as string | undefined;
+
+  let gc: GarminConnect | undefined;
+  if (tokenHeader) {
+    try {
+      gc = await createClientFromToken(tokenHeader);
+    } catch {
+      return res.status(401).json({ error: "Invalid x-garmin-token header." });
+    }
+  } else if (!process.env.GARMIN_EMAIL || !process.env.GARMIN_PASSWORD) {
+    return res.status(401).json({
+      error: "Set x-garmin-token in your MCP config headers. See README for setup instructions.",
+    });
+  }
+  // gc=undefined → tools fall back to env-var singleton via getEnvClient()
+
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless — new session per request
   });
 
-  const server = buildServer();
+  const server = buildServer(gc);
   await server.connect(transport);
   await transport.handleRequest(req as any, res as any, req.body);
 }
