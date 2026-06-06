@@ -10,6 +10,7 @@ import {
   listActivities,
   getActivity,
   getHRTimeSeries,
+  getSessionTimeseries,
   getAthleteProfile,
   createClientFromToken,
 } from "../lib/garmin";
@@ -83,6 +84,19 @@ const TOOLS = [
     name: "get_athlete_profile",
     description: "Fetch athlete profile: VO2max, resting HR, and max HR settings.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_session_timeseries",
+    description:
+      "Return per-sample HR, pace, power, elevation, and cadence throughout a session. Useful for analyzing how HR tracks effort, cardiac drift, and effort distribution over time.",
+    inputSchema: {
+      type: "object",
+      required: ["activity_id"],
+      properties: {
+        activity_id: { type: "number", description: "Garmin activity ID" },
+        every_secs: { type: "number", default: 10, description: "Sample every N seconds (default 10, min 1)" },
+      },
+    },
   },
   {
     name: "get_training_load_history",
@@ -174,6 +188,11 @@ function buildServer(gc?: GarminConnect): Server {
         case "get_athlete_profile": {
           const profile = await getAthleteProfile(gc);
           return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
+        }
+
+        case "get_session_timeseries": {
+          const rows = await getSessionTimeseries(Number(a.activity_id), a.every_secs ?? 10, gc);
+          return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
         }
 
         case "get_training_load_history": {

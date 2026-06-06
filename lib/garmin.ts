@@ -5,6 +5,15 @@ export type { IActivity };
 
 export type HRSample = { time: number; heartRate: number }; // time = elapsed seconds
 
+export type TimeseriesRow = {
+  t: number;          // elapsed seconds
+  hr: number | null;  // bpm
+  speed_mps: number | null;
+  power_w: number | null;
+  elevation_m: number | null;
+  cadence_spm: number | null;
+};
+
 let envClient: GarminConnect | null = null;
 
 async function getEnvClient(): Promise<GarminConnect> {
@@ -43,33 +52,83 @@ export async function getActivity(activityId: number, gc?: GarminConnect): Promi
   return client.getActivity({ activityId });
 }
 
+type ActivityDetails = {
+  metricDescriptors: Array<{ key: string; metricsIndex: number; unit: { factor: number } }>;
+  activityDetailMetrics: Array<{ metrics: (number | null)[] }>;
+};
+
+async function fetchDetails(activityId: number, gc: GarminConnect): Promise<ActivityDetails | null> {
+  // gc.get() passes to axios without a base URL — must use the full URL.
+  const baseUrl: string = (gc as any).url.ACTIVITY;
+  const details = await gc.get<Partial<ActivityDetails>>(
+    `${baseUrl}${activityId}/details`,
+    { params: { maxChartSize: 2000 } }
+  );
+  if (!details.metricDescriptors || !details.activityDetailMetrics) return null;
+  return details as ActivityDetails;
+}
+
+function idx(details: ActivityDetails, key: string): number {
+  return details.metricDescriptors.find((d) => d.key === key)?.metricsIndex ?? -1;
+}
+
+function val(metrics: (number | null)[], i: number): number | null {
+  return i >= 0 ? (metrics[i] ?? null) : null;
+}
+
 export async function getHRTimeSeries(activityId: number, gc?: GarminConnect): Promise<HRSample[]> {
   const client = await resolve(gc);
+  const details = await fetchDetails(activityId, client);
+  if (!details) return [];
 
-  // gc.get() passes to axios without a base URL — must use the full URL.
-  // (client as any).url.ACTIVITY = https://connectapi.garmin.com/activity-service/activity/
-  const baseUrl: string = (client as any).url.ACTIVITY;
-  const details = await client.get<{
-    metricDescriptors?: Array<{ key: string; metricsIndex: number; unit: { factor: number } }>;
-    activityDetailMetrics?: Array<{ metrics: (number | null)[] }>;
-  }>(`${baseUrl}${activityId}/details`, { params: { maxChartSize: 2000 } });
-
-  if (!details.metricDescriptors || !details.activityDetailMetrics) return [];
-
-  const hrDesc = details.metricDescriptors.find((d) => d.key === "directHeartRate");
-  const timeDesc = details.metricDescriptors.find((d) => d.key === "sumElapsedDuration");
-  if (!hrDesc) return [];
-
-  const hrIdx = hrDesc.metricsIndex;
-  const timeIdx = timeDesc?.metricsIndex ?? -1;
+  const hrIdx = idx(details, "directHeartRate");
+  const timeIdx = idx(details, "sumElapsedDuration");
+  if (hrIdx < 0) return [];
 
   // Raw sumElapsedDuration values are already in seconds despite factor=1000 in unit metadata.
   return details.activityDetailMetrics
-    .filter((p) => p.metrics[hrIdx] != null && (p.metrics[hrIdx] as number) > 0)
+    .filter((p) => (p.metrics[hrIdx] ?? 0) > 0)
     .map((p, i) => ({
       time: timeIdx >= 0 ? Math.round(p.metrics[timeIdx] as number) : i,
       heartRate: p.metrics[hrIdx] as number,
     }));
+}
+
+export async function getSessionTimeseries(
+  activityId: number,
+  everySecs = 10,
+  gc?: GarminConnect
+): Promise<TimeseriesRow[]> {
+  const client = await resolve(gc);
+  const details = await fetchDetails(activityId, client);
+  if (!details) return [];
+
+  const timeIdx  = idx(details, "sumElapsedDuration");
+  const hrIdx    = idx(details, "directHeartRate");
+  const speedIdx = idx(details, "directSpeed");
+  const powerIdx = idx(details, "directPower");
+  const elevIdx  = idx(details, "directElevation");
+  const cadIdx   = idx(details, "directRunCadence");
+
+  const rows: TimeseriesRow[] = [];
+  let nextT = 0;
+
+  for (const p of details.activityDetailMetrics) {
+    const t = timeIdx >= 0 ? Math.round(p.metrics[timeIdx] as number) : 0;
+    if (t < nextT) continue;
+    nextT = t + everySecs;
+
+    rows.push({
+      t,
+      hr:          val(p.metrics, hrIdx),
+      speed_mps:   val(p.metrics, speedIdx),
+      power_w:     val(p.metrics, powerIdx),
+      elevation_m: val(p.metrics, elevIdx),
+      cadence_spm: val(p.metrics, cadIdx),
+    });
+  }
+
+  return rows;
 }
 
 export async function getAthleteProfile(gc?: GarminConnect): Promise<{
